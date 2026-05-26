@@ -8,15 +8,16 @@ export async function POST(request) {
     
     console.log('📥 Received:', { moisture_value, status })
     
-    if (!moisture_value) {
+    if (moisture_value === undefined || moisture_value === null) {
       return NextResponse.json({ 
         success: false,
         error: 'moisture_value is required' 
       }, { status: 400 })
     }
     
-    // Hanya bersihkan dari karakter % jika ada, tapi tetap simpan sebagai persen
-    let cleanValue = String(moisture_value).replace('%', '')
+    // Bersihkan dari karakter non-digit, simpan sebagai angka
+    let cleanValue = String(moisture_value).replace(/[^0-9]/g, '')
+    if (cleanValue === '') cleanValue = '0'
     
     // Ambil active plant
     const { data: activePlant } = await supabase
@@ -30,12 +31,12 @@ export async function POST(request) {
       targetPlantId = activePlant.plant_id
     }
     
-    // Simpan ke database (nilai sudah dalam bentuk persen)
+    // Simpan ke database sebagai angka
     const { data, error } = await supabase
       .from('soil_moisture_data')
       .insert([{ 
         plant_id: targetPlantId,
-        moisture_value: cleanValue, // Simpan sebagai angka persen
+        moisture_value: cleanValue, // Simpan angka "71" bukan "71%"
         status: status || 'ACTIVE',
         recorded_at: new Date().toISOString()
       }])

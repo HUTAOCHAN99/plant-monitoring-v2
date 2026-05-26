@@ -10,8 +10,6 @@ export default function PlantCard({ plant: initialPlant }) {
   const [isActive, setIsActive] = useState(false)
   const [loading, setLoading] = useState(true)
 
-  // HAPUS fungsi convertToPercentage - tidak perlu karena data sudah dalam persen
-
   async function fetchLatestForPlant() {
     try {
       const { data } = await supabase
@@ -118,19 +116,16 @@ export default function PlantCard({ plant: initialPlant }) {
     }
   }
 
-  // Langsung gunakan nilai persen dari database
+  // Status berdasarkan nilai persen
   function getMoistureStatus(value) {
-    if (!value) return { text: 'No Data', color: 'text-gray-500', bg: 'bg-gray-100' }
+    if (!value && value !== 0) return { text: 'No Data', color: 'text-gray-500', bg: 'bg-gray-100' }
     
-    // Hapus karakter % jika ada, lalu konversi ke number
-    let cleanValue = String(value).replace(/[^0-9]/g, '')
-    let numericValue = parseInt(cleanValue) || 0
+    let numericValue = typeof value === 'string' ? parseInt(value) : value
     
-    if (numericValue === 0) {
+    if (isNaN(numericValue) || numericValue === 0) {
       return { text: 'No Reading', color: 'text-gray-500', bg: 'bg-gray-100' }
     }
     
-    // Status berdasarkan persen
     if (numericValue > 70) return { text: 'Dry', color: 'text-red-600', bg: 'bg-red-100' }
     if (numericValue > 50) return { text: 'Moist', color: 'text-yellow-600', bg: 'bg-yellow-100' }
     if (numericValue > 30) return { text: 'Wet', color: 'text-blue-600', bg: 'bg-blue-100' }
@@ -143,19 +138,12 @@ export default function PlantCard({ plant: initialPlant }) {
     return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   }
 
-  // Langsung tampilkan nilai tanpa konversi
+  // Tampilkan nilai + simbol persen
   function getDisplayValue(value) {
-    if (!value) return '--'
-    // Hapus % jika ada, lalu tampilkan dengan %
+    if (!value && value !== 0) return '--'
     let cleanValue = String(value).replace(/[^0-9]/g, '')
     if (cleanValue === '') return '--'
     return `${cleanValue}%`
-  }
-
-  // Tampilkan raw value asli
-  function getRawValue(value) {
-    if (!value) return '--'
-    return value
   }
 
   if (loading) {
@@ -171,7 +159,6 @@ export default function PlantCard({ plant: initialPlant }) {
 
   const displayValue = latestSoilMoisture ? getDisplayValue(latestSoilMoisture.moisture_value) : '--'
   const status = getMoistureStatus(latestSoilMoisture?.moisture_value)
-  const rawDisplay = latestSoilMoisture ? getRawValue(latestSoilMoisture.moisture_value) : '--'
 
   return (
     <>
@@ -203,14 +190,12 @@ export default function PlantCard({ plant: initialPlant }) {
             
             {latestSoilMoisture ? (
               <div className={`p-3 rounded-md ${status.bg}`}>
+                {/* Tampilkan nilai dengan simbol % */}
                 <p className="text-2xl font-bold" style={{ color: status.color }}>
                   {displayValue}
                 </p>
                 <p className={`text-xs font-medium ${status.color}`}>
                   {status.text}
-                </p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Raw: {rawDisplay}
                 </p>
                 <p className="text-xs text-gray-400 mt-1">
                   {formatTime(latestSoilMoisture.recorded_at)}
