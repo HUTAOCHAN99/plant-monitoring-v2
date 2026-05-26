@@ -15,14 +15,8 @@ export async function POST(request) {
       }, { status: 400 })
     }
     
-    // Clean value (hapus %)
-    let cleanValue = String(moisture_value).replace(/[^0-9]/g, '')
-    if (cleanValue === '') cleanValue = '0'
-    let numericValue = parseInt(cleanValue) || 0
-    
-    // Konversi ke persen untuk response (0-4095 -> 0-100%)
-    let percentage = Math.round((numericValue / 4095) * 100)
-    percentage = Math.min(100, Math.max(0, percentage))
+    // Hanya bersihkan dari karakter % jika ada, tapi tetap simpan sebagai persen
+    let cleanValue = String(moisture_value).replace('%', '')
     
     // Ambil active plant
     const { data: activePlant } = await supabase
@@ -32,17 +26,17 @@ export async function POST(request) {
       .single()
     
     let targetPlantId = null
-    if (numericValue > 0 && activePlant?.plant_id) {
+    if (activePlant?.plant_id) {
       targetPlantId = activePlant.plant_id
     }
     
-    // Simpan ke database
+    // Simpan ke database (nilai sudah dalam bentuk persen)
     const { data, error } = await supabase
       .from('soil_moisture_data')
       .insert([{ 
         plant_id: targetPlantId,
-        moisture_value: cleanValue,
-        status: status || (numericValue === 0 ? 'SENSOR_DISCONNECTED' : 'ACTIVE'),
+        moisture_value: cleanValue, // Simpan sebagai angka persen
+        status: status || 'ACTIVE',
         recorded_at: new Date().toISOString()
       }])
       .select()
@@ -55,17 +49,12 @@ export async function POST(request) {
       }, { status: 500 })
     }
     
-    console.log(`✅ Saved: ${cleanValue} (${percentage}%) -> plant: ${targetPlantId || 'none'}`)
+    console.log(`✅ Saved: ${cleanValue}% for plant: ${targetPlantId || 'none'}`)
     
-    // Return data dengan persen
     return NextResponse.json({ 
       success: true, 
-      data: {
-        ...data[0],
-        percentage: percentage,
-        display_value: `${percentage}%`
-      },
-      message: `Data saved: ${percentage}%`
+      data: data[0],
+      message: `${cleanValue}% saved`
     }, { status: 201 })
     
   } catch (error) {

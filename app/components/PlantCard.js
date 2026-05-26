@@ -10,15 +10,7 @@ export default function PlantCard({ plant: initialPlant }) {
   const [isActive, setIsActive] = useState(false)
   const [loading, setLoading] = useState(true)
 
-  function convertToPercentage(rawValue) {
-    if (!rawValue && rawValue !== 0) return 0
-    let cleanValue = String(rawValue).replace(/[^0-9]/g, '')
-    let numericValue = parseInt(cleanValue) || 0
-    if (numericValue === 0) return 0
-    let percentage = (numericValue / 4095) * 100
-    percentage = Math.min(100, Math.max(0, percentage))
-    return Math.round(percentage)
-  }
+  // HAPUS fungsi convertToPercentage - tidak perlu karena data sudah dalam persen
 
   async function fetchLatestForPlant() {
     try {
@@ -49,11 +41,9 @@ export default function PlantCard({ plant: initialPlant }) {
     
     const active = data?.plant_id === plant.id
     setIsActive(active)
-    console.log(`📍 Card ${plant.plant_name}: Active = ${active}`)
     return active
   }
 
-  // Real-time subscription dan polling untuk semua card
   useEffect(() => {
     let activeSubscription = null
     let dataSubscription = null
@@ -61,23 +51,20 @@ export default function PlantCard({ plant: initialPlant }) {
 
     async function init() {
       setLoading(true)
-      const active = await checkActive()
+      await checkActive()
       await fetchLatestForPlant()
       setLoading(false)
     }
     
     init()
 
-    // Subscribe ke perubahan active plant
     activeSubscription = supabase
       .channel('active_changes_card_' + plant.id)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'active_plant', filter: 'id=eq.1' },
         async (payload) => {
           const isNowActive = payload.new?.plant_id === plant.id
-          console.log(`🔄 Card ${plant.plant_name}: Active changed to ${isNowActive}`)
           setIsActive(isNowActive)
-          // Jika jadi aktif, ambil data terbaru
           if (isNowActive) {
             await fetchLatestForPlant()
           }
@@ -85,7 +72,6 @@ export default function PlantCard({ plant: initialPlant }) {
       )
       .subscribe()
 
-    // Subscribe ke data baru untuk plant ini (REAL-TIME)
     dataSubscription = supabase
       .channel('plant_data_card_' + plant.id)
       .on('postgres_changes',
@@ -97,17 +83,14 @@ export default function PlantCard({ plant: initialPlant }) {
         },
         (payload) => {
           console.log(`🔴 LIVE: Card ${plant.plant_name} received new data:`, payload.new.moisture_value)
-          // Langsung update state dengan data baru
           setLatestSoilMoisture(payload.new)
         }
       )
       .subscribe()
 
-    // Polling setiap 3 detik untuk card yang AKTIF saja (fallback)
     pollingInterval = setInterval(async () => {
       const currentActive = await checkActive()
       if (currentActive) {
-        console.log(`🔄 Polling: Checking latest for active card ${plant.plant_name}`)
         await fetchLatestForPlant()
       }
     }, 3000)
@@ -135,20 +118,22 @@ export default function PlantCard({ plant: initialPlant }) {
     }
   }
 
-  function getMoistureStatus(rawValue) {
-    if (!rawValue) return { text: 'No Data', color: 'text-gray-500', bg: 'bg-gray-100' }
+  // Langsung gunakan nilai persen dari database
+  function getMoistureStatus(value) {
+    if (!value) return { text: 'No Data', color: 'text-gray-500', bg: 'bg-gray-100' }
     
-    const cleanValue = String(rawValue).replace(/[^0-9]/g, '')
-    const numericValue = parseInt(cleanValue) || 0
+    // Hapus karakter % jika ada, lalu konversi ke number
+    let cleanValue = String(value).replace(/[^0-9]/g, '')
+    let numericValue = parseInt(cleanValue) || 0
     
     if (numericValue === 0) {
       return { text: 'No Reading', color: 'text-gray-500', bg: 'bg-gray-100' }
     }
     
-    const percentage = convertToPercentage(rawValue)
-    if (percentage > 70) return { text: 'Dry', color: 'text-red-600', bg: 'bg-red-100' }
-    if (percentage > 50) return { text: 'Moist', color: 'text-yellow-600', bg: 'bg-yellow-100' }
-    if (percentage > 30) return { text: 'Wet', color: 'text-blue-600', bg: 'bg-blue-100' }
+    // Status berdasarkan persen
+    if (numericValue > 70) return { text: 'Dry', color: 'text-red-600', bg: 'bg-red-100' }
+    if (numericValue > 50) return { text: 'Moist', color: 'text-yellow-600', bg: 'bg-yellow-100' }
+    if (numericValue > 30) return { text: 'Wet', color: 'text-blue-600', bg: 'bg-blue-100' }
     return { text: 'Very Wet', color: 'text-green-600', bg: 'bg-green-100' }
   }
 
@@ -158,16 +143,19 @@ export default function PlantCard({ plant: initialPlant }) {
     return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   }
 
-  function getDisplayValue(rawValue) {
-    if (!rawValue) return '--'
-    const percentage = convertToPercentage(rawValue)
-    if (percentage === 0) return '0%'
-    return `${percentage}%`
+  // Langsung tampilkan nilai tanpa konversi
+  function getDisplayValue(value) {
+    if (!value) return '--'
+    // Hapus % jika ada, lalu tampilkan dengan %
+    let cleanValue = String(value).replace(/[^0-9]/g, '')
+    if (cleanValue === '') return '--'
+    return `${cleanValue}%`
   }
 
-  function getRawValue(rawValue) {
-    if (!rawValue) return '--'
-    return String(rawValue).replace(/[^0-9]/g, '')
+  // Tampilkan raw value asli
+  function getRawValue(value) {
+    if (!value) return '--'
+    return value
   }
 
   if (loading) {
@@ -181,7 +169,7 @@ export default function PlantCard({ plant: initialPlant }) {
     )
   }
 
-  const displayPercentage = latestSoilMoisture ? convertToPercentage(latestSoilMoisture.moisture_value) : 0
+  const displayValue = latestSoilMoisture ? getDisplayValue(latestSoilMoisture.moisture_value) : '--'
   const status = getMoistureStatus(latestSoilMoisture?.moisture_value)
   const rawDisplay = latestSoilMoisture ? getRawValue(latestSoilMoisture.moisture_value) : '--'
 
@@ -216,7 +204,7 @@ export default function PlantCard({ plant: initialPlant }) {
             {latestSoilMoisture ? (
               <div className={`p-3 rounded-md ${status.bg}`}>
                 <p className="text-2xl font-bold" style={{ color: status.color }}>
-                  {displayPercentage === 0 ? 'No Reading' : `${displayPercentage}%`}
+                  {displayValue}
                 </p>
                 <p className={`text-xs font-medium ${status.color}`}>
                   {status.text}
@@ -233,11 +221,6 @@ export default function PlantCard({ plant: initialPlant }) {
                 <p className="text-sm text-gray-500">
                   {isActive ? 'Waiting for sensor data...' : 'Not active'}
                 </p>
-                {isActive && (
-                  <p className="text-xs text-gray-400 mt-1">
-                    Data will appear automatically when sensor sends reading
-                  </p>
-                )}
               </div>
             )}
           </div>
