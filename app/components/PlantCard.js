@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import PlantDetailModal from './PlantDetailModal'
 
@@ -7,21 +7,21 @@ export default function PlantCard({ plant: initialPlant }) {
   const [plant, setPlant] = useState(initialPlant)
   const [latestSoilMoisture, setLatestSoilMoisture] = useState(null)
   const [showDetailModal, setShowDetailModal] = useState(false)
+  const [isActive, setIsActive] = useState(false)
+  const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    // Subscribe ke perubahan soil moisture data
-    const moistureSubscription = supabase
-      .channel(`moisture_${plant.id}`)
-      .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'soil_moisture_data', filter: `plant_id=eq.${plant.id}` },
-        (payload) => {
-          setLatestSoilMoisture(payload.new)
-        }
-      )
-      .subscribe()
+  function convertToPercentage(rawValue) {
+    if (!rawValue && rawValue !== 0) return 0
+    let cleanValue = String(rawValue).replace(/[^0-9]/g, '')
+    let numericValue = parseInt(cleanValue) || 0
+    if (numericValue === 0) return 0
+    let percentage = (numericValue / 4095) * 100
+    percentage = Math.min(100, Math.max(0, percentage))
+    return Math.round(percentage)
+  }
 
-    // Ambil data soil moisture terbaru
-    async function fetchLatestSoilMoisture() {
+  async function fetchLatestForPlant() {
+    try {
       const { data } = await supabase
         .from('soil_moisture_data')
         .select('*')
@@ -31,17 +31,94 @@ export default function PlantCard({ plant: initialPlant }) {
       
       if (data && data.length > 0) {
         setLatestSoilMoisture(data[0])
+        console.log(`📊 Card ${plant.plant_name}: Latest data = ${data[0].moisture_value}`)
+      } else {
+        setLatestSoilMoisture(null)
       }
+    } catch (error) {
+      console.error('Error fetching latest data:', error)
+    }
+  }
+
+  async function checkActive() {
+    const { data } = await supabase
+      .from('active_plant')
+      .select('plant_id')
+      .eq('id', 1)
+      .single()
+    
+    const active = data?.plant_id === plant.id
+    setIsActive(active)
+    console.log(`📍 Card ${plant.plant_name}: Active = ${active}`)
+    return active
+  }
+
+  // Real-time subscription dan polling untuk semua card
+  useEffect(() => {
+    let activeSubscription = null
+    let dataSubscription = null
+    let pollingInterval = null
+
+    async function init() {
+      setLoading(true)
+      const active = await checkActive()
+      await fetchLatestForPlant()
+      setLoading(false)
     }
     
-    fetchLatestSoilMoisture()
+    init()
+
+    // Subscribe ke perubahan active plant
+    activeSubscription = supabase
+      .channel('active_changes_card_' + plant.id)
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'active_plant', filter: 'id=eq.1' },
+        async (payload) => {
+          const isNowActive = payload.new?.plant_id === plant.id
+          console.log(`🔄 Card ${plant.plant_name}: Active changed to ${isNowActive}`)
+          setIsActive(isNowActive)
+          // Jika jadi aktif, ambil data terbaru
+          if (isNowActive) {
+            await fetchLatestForPlant()
+          }
+        }
+      )
+      .subscribe()
+
+    // Subscribe ke data baru untuk plant ini (REAL-TIME)
+    dataSubscription = supabase
+      .channel('plant_data_card_' + plant.id)
+      .on('postgres_changes',
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'soil_moisture_data',
+          filter: `plant_id=eq.${plant.id}`
+        },
+        (payload) => {
+          console.log(`🔴 LIVE: Card ${plant.plant_name} received new data:`, payload.new.moisture_value)
+          // Langsung update state dengan data baru
+          setLatestSoilMoisture(payload.new)
+        }
+      )
+      .subscribe()
+
+    // Polling setiap 3 detik untuk card yang AKTIF saja (fallback)
+    pollingInterval = setInterval(async () => {
+      const currentActive = await checkActive()
+      if (currentActive) {
+        console.log(`🔄 Polling: Checking latest for active card ${plant.plant_name}`)
+        await fetchLatestForPlant()
+      }
+    }, 3000)
 
     return () => {
-      moistureSubscription.unsubscribe()
+      if (activeSubscription) activeSubscription.unsubscribe()
+      if (dataSubscription) dataSubscription.unsubscribe()
+      if (pollingInterval) clearInterval(pollingInterval)
     }
-  }, [plant.id])
+  }, [plant.id, plant.plant_name])
 
-  // Edit nama tanaman
   async function editPlantName() {
     const newName = prompt('Edit plant name:', plant.plant_name)
     if (newName && newName !== plant.plant_name) {
@@ -58,74 +135,113 @@ export default function PlantCard({ plant: initialPlant }) {
     }
   }
 
-  // Fungsi untuk mendapatkan status kelembaban tanah
-  function getMoistureStatus(value) {
-    if (!value) return { text: 'No data', color: 'text-gray-500', bg: 'bg-gray-100' }
+  function getMoistureStatus(rawValue) {
+    if (!rawValue) return { text: 'No Data', color: 'text-gray-500', bg: 'bg-gray-100' }
     
-    // Parse value karena bisa dalam bentuk string (TEXT)
-    const numericValue = typeof value === 'string' ? parseInt(value) : value
+    const cleanValue = String(rawValue).replace(/[^0-9]/g, '')
+    const numericValue = parseInt(cleanValue) || 0
     
-    if (isNaN(numericValue)) return { text: 'Invalid', color: 'text-gray-500', bg: 'bg-gray-100' }
+    if (numericValue === 0) {
+      return { text: 'No Reading', color: 'text-gray-500', bg: 'bg-gray-100' }
+    }
     
-    if (numericValue > 3000) return { text: 'Dry', color: 'text-red-600', bg: 'bg-red-100' }
-    if (numericValue > 2000) return { text: 'Moist', color: 'text-yellow-600', bg: 'bg-yellow-100' }
-    if (numericValue > 1000) return { text: 'Wet', color: 'text-blue-600', bg: 'bg-blue-100' }
+    const percentage = convertToPercentage(rawValue)
+    if (percentage > 70) return { text: 'Dry', color: 'text-red-600', bg: 'bg-red-100' }
+    if (percentage > 50) return { text: 'Moist', color: 'text-yellow-600', bg: 'bg-yellow-100' }
+    if (percentage > 30) return { text: 'Wet', color: 'text-blue-600', bg: 'bg-blue-100' }
     return { text: 'Very Wet', color: 'text-green-600', bg: 'bg-green-100' }
   }
 
-  // Format waktu
   function formatTime(timestamp) {
     if (!timestamp) return ''
     const date = new Date(timestamp)
     return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   }
 
+  function getDisplayValue(rawValue) {
+    if (!rawValue) return '--'
+    const percentage = convertToPercentage(rawValue)
+    if (percentage === 0) return '0%'
+    return `${percentage}%`
+  }
+
+  function getRawValue(rawValue) {
+    if (!rawValue) return '--'
+    return String(rawValue).replace(/[^0-9]/g, '')
+  }
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="animate-pulse">
+          <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+          <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+        </div>
+      </div>
+    )
+  }
+
+  const displayPercentage = latestSoilMoisture ? convertToPercentage(latestSoilMoisture.moisture_value) : 0
+  const status = getMoistureStatus(latestSoilMoisture?.moisture_value)
+  const rawDisplay = latestSoilMoisture ? getRawValue(latestSoilMoisture.moisture_value) : '--'
+
   return (
     <>
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-sm transition">
-        {/* Header Card */}
         <div className="p-4 border-b border-gray-100">
-          <h3 className="font-medium text-gray-900">
-            {plant.plant_name || `Plant ${plant.id.slice(0,4)}`}
-          </h3>
-          <p className="text-xs text-gray-500 mt-1">
-            Owner: {plant.owner_name || '-'}
-          </p>
+          <div className="flex justify-between items-start">
+            <div>
+              <h3 className="font-medium text-gray-900">
+                {plant.plant_name || `Plant ${plant.id.slice(0,4)}`}
+              </h3>
+              <p className="text-xs text-gray-500 mt-1">
+                Owner: {plant.owner_name || '-'}
+              </p>
+            </div>
+            {isActive && (
+              <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded flex items-center gap-1">
+                <span className="w-1.5 h-1.5 bg-green-600 rounded-full animate-pulse"></span>
+                ACTIVE
+              </span>
+            )}
+          </div>
         </div>
         
-        {/* Body Card */}
         <div className="p-4">
-          {/* Soil Moisture Section */}
           <div>
             <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
               Soil Moisture
             </h4>
             
             {latestSoilMoisture ? (
-              <div className={`p-3 rounded-md ${getMoistureStatus(latestSoilMoisture.moisture_value).bg}`}>
-                <p className="text-xl font-bold">
-                  {latestSoilMoisture.moisture_value}
+              <div className={`p-3 rounded-md ${status.bg}`}>
+                <p className="text-2xl font-bold" style={{ color: status.color }}>
+                  {displayPercentage === 0 ? 'No Reading' : `${displayPercentage}%`}
                 </p>
-                <p className={`text-xs font-medium ${getMoistureStatus(latestSoilMoisture.moisture_value).color}`}>
-                  {getMoistureStatus(latestSoilMoisture.moisture_value).text}
+                <p className={`text-xs font-medium ${status.color}`}>
+                  {status.text}
                 </p>
-                {latestSoilMoisture.status && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Status: {latestSoilMoisture.status}
-                  </p>
-                )}
+                <p className="text-xs text-gray-400 mt-1">
+                  Raw: {rawDisplay}
+                </p>
                 <p className="text-xs text-gray-400 mt-1">
                   {formatTime(latestSoilMoisture.recorded_at)}
                 </p>
               </div>
             ) : (
               <div className="text-center py-4 bg-gray-50 rounded-md">
-                <p className="text-sm text-gray-500">Waiting for data...</p>
+                <p className="text-sm text-gray-500">
+                  {isActive ? 'Waiting for sensor data...' : 'Not active'}
+                </p>
+                {isActive && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    Data will appear automatically when sensor sends reading
+                  </p>
+                )}
               </div>
             )}
           </div>
           
-          {/* Action Buttons */}
           <div className="flex gap-2 mt-3">
             <button
               onClick={editPlantName}
@@ -143,7 +259,6 @@ export default function PlantCard({ plant: initialPlant }) {
         </div>
       </div>
 
-      {/* Detail Modal */}
       <PlantDetailModal
         plant={plant}
         isOpen={showDetailModal}

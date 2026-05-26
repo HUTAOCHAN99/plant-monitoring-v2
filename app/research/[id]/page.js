@@ -1,6 +1,5 @@
-// app/research/[id]/page.js
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -26,7 +25,8 @@ export default function ResearchDetail() {
   const [newPlant, setNewPlant] = useState({ plant_name: '', owner_name: '' })
   const [isAdding, setIsAdding] = useState(false)
 
-  async function fetchGlobalSensorStatus() {
+  // Fetch functions
+  const fetchGlobalSensorStatus = useCallback(async () => {
     const { data, error } = await supabase
       .from('sensor_status')
       .select('*')
@@ -37,53 +37,144 @@ export default function ResearchDetail() {
       setSensorStatus(data)
       setIsRecording(data.soil_moisture_on === 'HIGH')
     }
-  }
+  }, [])
 
-  async function fetchActivePlant() {
-    const { data, error } = await supabase
-      .from('active_plant')
-      .select(`
-        *,
-        plants (
-          id,
-          plant_name,
-          owner_name
-        )
-      `)
-      .eq('id', 1)
-      .maybeSingle()
+  const fetchActivePlant = useCallback(async () => {
+    console.log('Fetching active plant...')
     
-    if (!error && data) {
-      setActivePlant(data)
+    // First get the active plant ID
+    const { data: activeData, error: activeError } = await supabase
+      .from('active_plant')
+      .select('plant_id, research_id, updated_at')
+      .eq('id', 1)
+      .single()
+    
+    if (activeError) {
+      console.error('Error fetching active plant:', activeError)
+      setActivePlant(null)
+      return
     }
-  }
+    
+    console.log('Active plant ID:', activeData?.plant_id)
+    
+    // If there's a plant_id, fetch the plant details
+    if (activeData?.plant_id) {
+      const { data: plantData, error: plantError } = await supabase
+        .from('plants')
+        .select('id, plant_name, owner_name')
+        .eq('id', activeData.plant_id)
+        .single()
+      
+      if (plantError) {
+        console.error('Error fetching plant details:', plantError)
+        setActivePlant(null)
+      } else {
+        console.log('Plant details:', plantData)
+        setActivePlant(plantData)
+      }
+    } else {
+      setActivePlant(null)
+    }
+  }, [])
 
-  async function setActivePlantHandler(plantId, plantName) {
+  const fetchSoilMoistureLogs = useCallback(async () => {
+    // Get active plant first
+    const { data: activeData } = await supabase
+      .from('active_plant')
+      .select('plant_id')
+      .eq('id', 1)
+      .single()
+    
+    if (activeData?.plant_id) {
+      // Fetch data for active plant
+      const { data } = await supabase
+        .from('soil_moisture_data')
+        .select('*')
+        .eq('plant_id', activeData.plant_id)
+        .order('recorded_at', { ascending: false })
+        .limit(20)
+      
+      if (data) {
+        setSoilMoistureLogs(data)
+      }
+    } else {
+      // If no active plant, show all data or empty
+      const { data } = await supabase
+        .from('soil_moisture_data')
+        .select('*')
+        .order('recorded_at', { ascending: false })
+        .limit(20)
+      
+      if (data) {
+        setSoilMoistureLogs(data)
+      }
+    }
+  }, [])
+
+  const fetchPlants = useCallback(async () => {
+    const { data: plantsData } = await supabase
+      .from('plants')
+      .select('*')
+      .eq('research_id', id)
+      .order('created_at', { ascending: true })
+    
+    if (plantsData) {
+      setPlants(plantsData)
+    }
+  }, [id])
+
+  const fetchResearchDetail = useCallback(async () => {
+    setLoading(true)
+    const { data: researchData, error } = await supabase
+      .from('research')
+      .select('*')
+      .eq('id', id)
+      .single()
+    
+    if (error) {
+      toast.error('Failed to load research data')
+      setLoading(false)
+    } else {
+      setResearch(researchData)
+      await Promise.all([
+        fetchPlants(),
+        fetchGlobalSensorStatus(),
+        fetchActivePlant(),
+        fetchSoilMoistureLogs()
+      ])
+      setLoading(false)
+    }
+  }, [id, fetchPlants, fetchGlobalSensorStatus, fetchActivePlant, fetchSoilMoistureLogs])
+
+  const setActivePlantHandler = useCallback(async (plantId, plantName) => {
     setIsSwitching(true)
     
+    console.log('Setting active plant to:', plantId, plantName)
+    
+    // Update active_plant table
     const { error } = await supabase
       .from('active_plant')
       .upsert({
         id: 1,
         plant_id: plantId,
         research_id: id,
-        updated_at: new Date(),
+        updated_at: new Date().toISOString(),
         updated_by: 'user'
       })
     
     if (!error) {
       toast.success(`Sensor switched to: ${plantName}`)
       await fetchActivePlant()
-      if (sensorStatus.soil_moisture_on === 'HIGH') {
-        fetchSoilMoistureForPlant(plantId)
-      }
+      await fetchSoilMoistureLogs()
+      console.log('Active plant updated successfully')
     } else {
-      toast.error('Failed to switch sensor')
+      console.error('Error updating active plant:', error)
+      toast.error('Failed to switch sensor: ' + error.message)
     }
     setIsSwitching(false)
-  }
+  }, [id, fetchActivePlant, fetchSoilMoistureLogs])
 
-  async function addNewPlant() {
+  const addNewPlant = useCallback(async () => {
     if (!newPlant.plant_name || !newPlant.owner_name) {
       toast.error('Plant name and owner name are required')
       return
@@ -113,10 +204,10 @@ export default function ResearchDetail() {
       toast.error('Failed to add plant')
     }
     setIsAdding(false)
-  }
+  }, [newPlant, id, fetchPlants, plants.length, setActivePlantHandler])
 
-  async function deletePlant(plantId, plantName) {
-    if (activePlant?.plant_id === plantId) {
+  const deletePlant = useCallback(async (plantId, plantName) => {
+    if (activePlant?.id === plantId) {
       toast.error(`Cannot delete "${plantName}" because it is active. Switch to another plant first.`)
       return
     }
@@ -134,24 +225,9 @@ export default function ResearchDetail() {
         toast.error('Failed to delete plant')
       }
     }
-  }
+  }, [activePlant?.id, fetchPlants])
 
-  async function fetchSoilMoistureForPlant(plantId) {
-    if (!plantId) return
-    
-    const { data } = await supabase
-      .from('soil_moisture_data')
-      .select('*')
-      .eq('plant_id', plantId)
-      .order('recorded_at', { ascending: false })
-      .limit(20)
-    
-    if (data) {
-      setSoilMoistureLogs(data)
-    }
-  }
-
-  async function toggleGlobalSensor() {
+  const toggleGlobalSensor = useCallback(async () => {
     setIsToggling(true)
     const newStatus = sensorStatus.soil_moisture_on === 'HIGH' ? 'LOW' : 'HIGH'
     
@@ -169,78 +245,64 @@ export default function ResearchDetail() {
       setIsRecording(newStatus === 'HIGH')
       toast.success(`Relay ${newStatus === 'HIGH' ? 'ON' : 'OFF'}`)
       
-      if (newStatus === 'HIGH' && activePlant?.plant_id) {
-        fetchSoilMoistureForPlant(activePlant.plant_id)
+      if (newStatus === 'HIGH') {
+        await fetchSoilMoistureLogs()
       }
     } else {
       toast.error('Failed to toggle relay')
     }
     setIsToggling(false)
-  }
+  }, [sensorStatus, id, fetchSoilMoistureLogs])
 
-  async function fetchPlants() {
-    const { data: plantsData } = await supabase
-      .from('plants')
-      .select('*')
-      .eq('research_id', id)
-      .order('created_at', { ascending: true })
-    
-    if (plantsData) {
-      setPlants(plantsData)
+  // Main effect for initial data loading
+  useEffect(() => {
+    if (id) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      fetchResearchDetail()
     }
-  }
+  }, [id, fetchResearchDetail])
 
-  async function fetchResearchDetail() {
-    const { data: researchData, error } = await supabase
-      .from('research')
-      .select('*')
-      .eq('id', id)
-      .single()
-    
-    if (error) {
-      toast.error('Failed to load research data')
-    } else {
-      setResearch(researchData)
-      await fetchPlants()
-      await fetchGlobalSensorStatus()
-      await fetchActivePlant()
-    }
-    setLoading(false)
-  }
-
+  // Effect for real-time subscriptions
   useEffect(() => {
     if (!id) return
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchResearchDetail()
-    
+    // Subscribe to ALL new soil moisture data
     const moistureSubscription = supabase
-      .channel('moisture_changes')
+      .channel('moisture_all_' + id)
       .on('postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'soil_moisture_data' },
         (payload) => {
-          if (payload.new.plant_id === activePlant?.plant_id) {
-            setSoilMoistureLogs(prev => [payload.new, ...prev].slice(0, 50))
-          }
+          // Check if the new data belongs to active plant
+          const { data: activeData } = supabase
+            .from('active_plant')
+            .select('plant_id')
+            .eq('id', 1)
+            .single()
+          
+          activeData.then(({ data }) => {
+            if (data?.plant_id === payload.new.plant_id) {
+              setSoilMoistureLogs(prev => [payload.new, ...prev].slice(0, 50))
+            }
+          })
         }
       )
       .subscribe()
 
+    // Subscribe to active plant changes
     const activePlantSubscription = supabase
-      .channel('active_plant_changes')
+      .channel('active_plant_changes_' + id)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'active_plant', filter: 'id=eq.1' },
-        (payload) => {
-          setActivePlant(payload.new)
-          if (payload.new.plant_id && sensorStatus.soil_moisture_on === 'HIGH') {
-            fetchSoilMoistureForPlant(payload.new.plant_id)
-          }
+        async () => {
+          await fetchActivePlant()
+          await fetchSoilMoistureLogs()
         }
       )
       .subscribe()
 
+    // Subscribe to sensor status changes
     const sensorStatusSubscription = supabase
-      .channel('sensor_status_changes')
+      .channel('sensor_status_changes_' + id)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'sensor_status', filter: 'id=eq.1' },
         (payload) => {
@@ -250,8 +312,9 @@ export default function ResearchDetail() {
       )
       .subscribe()
 
+    // Subscribe to plants changes
     const plantsSubscription = supabase
-      .channel('plants_changes')
+      .channel('plants_changes_' + id)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'plants', filter: `research_id=eq.${id}` },
         () => fetchPlants()
@@ -264,24 +327,38 @@ export default function ResearchDetail() {
       sensorStatusSubscription.unsubscribe()
       plantsSubscription.unsubscribe()
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, activePlant?.plant_id])
+  }, [id, fetchActivePlant, fetchPlants, fetchSoilMoistureLogs])
 
+  // Effect for auto-refresh when recording
   useEffect(() => {
-    if (isRecording && activePlant?.plant_id) {
+    if (isRecording) {
       const interval = setInterval(() => {
-        fetchSoilMoistureForPlant(activePlant.plant_id)
+        fetchSoilMoistureLogs()
       }, 5000)
       return () => clearInterval(interval)
     }
-  }, [isRecording, activePlant?.plant_id])
+  }, [isRecording, fetchSoilMoistureLogs])
 
   function getMoistureStatus(value) {
     if (!value) return { text: 'No data', color: 'text-gray-500', bg: 'bg-gray-100' }
-    if (value > 3000) return { text: 'Dry', color: 'text-red-600', bg: 'bg-red-100' }
-    if (value > 2000) return { text: 'Moist', color: 'text-yellow-600', bg: 'bg-yellow-100' }
-    if (value > 1000) return { text: 'Wet', color: 'text-blue-600', bg: 'bg-blue-100' }
+    let cleanValue = String(value).replace(/[^0-9]/g, '')
+    let numericValue = parseInt(cleanValue) || 0
+    if (numericValue === 0) return { text: 'No Reading', color: 'text-gray-500', bg: 'bg-gray-100' }
+    let percentage = (numericValue / 4095) * 100
+    if (percentage > 70) return { text: 'Dry', color: 'text-red-600', bg: 'bg-red-100' }
+    if (percentage > 50) return { text: 'Moist', color: 'text-yellow-600', bg: 'bg-yellow-100' }
+    if (percentage > 30) return { text: 'Wet', color: 'text-blue-600', bg: 'bg-blue-100' }
     return { text: 'Very Wet', color: 'text-green-600', bg: 'bg-green-100' }
+  }
+
+  function getDisplayValue(rawValue) {
+    if (!rawValue) return '--'
+    let cleanValue = String(rawValue).replace(/[^0-9]/g, '')
+    let numericValue = parseInt(cleanValue) || 0
+    if (numericValue === 0) return 'No Reading'
+    let percentage = (numericValue / 4095) * 100
+    percentage = Math.min(100, Math.max(0, percentage))
+    return `${Math.round(percentage)}%`
   }
 
   if (loading) return (
@@ -362,10 +439,10 @@ export default function ResearchDetail() {
               <div>
                 <p className="text-xs text-gray-500 uppercase tracking-wide">Active Plant</p>
                 <p className="text-base font-medium text-gray-900">
-                  {activePlant?.plants?.plant_name || 'Not selected'}
+                  {activePlant?.plant_name || 'Not selected'}
                 </p>
-                {activePlant?.plants?.owner_name && (
-                  <p className="text-xs text-gray-500">Owner: {activePlant.plants.owner_name}</p>
+                {activePlant?.owner_name && (
+                  <p className="text-xs text-gray-500">Owner: {activePlant.owner_name}</p>
                 )}
               </div>
               <div className="text-xs text-gray-400">
@@ -388,8 +465,8 @@ export default function ResearchDetail() {
                         disabled={isSwitching}
                         className={`
                           w-full px-3 py-2 rounded-md text-sm font-medium transition-all
-                          ${activePlant?.plant_id === plant.id 
-                            ? 'bg-gray-900 text-white' 
+                          ${activePlant?.id === plant.id 
+                            ? 'bg-green-600 text-white' 
                             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                           }
                           ${isSwitching ? 'opacity-50 cursor-not-allowed' : ''}
@@ -408,17 +485,17 @@ export default function ResearchDetail() {
                 </div>
               )}
               <p className="text-xs text-gray-400 mt-2">
-                Select the plant that currently has the soil moisture sensor attached.
+                Select which plant currently has the soil moisture sensor attached.
               </p>
             </div>
           </div>
         </div>
         
-        {/* Soil Moisture Data */}
-        {isRecording && activePlant?.plant_id && (
+        {/* Soil Moisture Data - Shows data for active plant */}
+        {isRecording && activePlant && (
           <div className="mb-8 bg-white rounded-lg border border-gray-200 p-6">
             <h2 className="text-sm font-semibold text-gray-700 mb-4">
-              Soil Moisture Data - {activePlant.plants?.plant_name}
+              Soil Moisture Sensor Data - {activePlant.plant_name}
             </h2>
             
             {soilMoistureLogs[0] && (
@@ -426,7 +503,7 @@ export default function ResearchDetail() {
                 <p className="text-xs text-gray-500 uppercase tracking-wide">Latest Reading</p>
                 <div className={`inline-block px-3 py-1 rounded-md mt-2 ${getMoistureStatus(soilMoistureLogs[0].moisture_value).bg}`}>
                   <span className={`text-2xl font-bold ${getMoistureStatus(soilMoistureLogs[0].moisture_value).color}`}>
-                    {soilMoistureLogs[0].moisture_value}
+                    {getDisplayValue(soilMoistureLogs[0].moisture_value)}
                   </span>
                   <span className={`ml-2 text-sm font-medium ${getMoistureStatus(soilMoistureLogs[0].moisture_value).color}`}>
                     {getMoistureStatus(soilMoistureLogs[0].moisture_value).text}
@@ -457,7 +534,7 @@ export default function ResearchDetail() {
                             {new Date(log.recorded_at).toLocaleString()}
                           </td>
                           <td className="px-4 py-2 text-sm font-mono font-medium">
-                            {log.moisture_value}
+                            {getDisplayValue(log.moisture_value)}
                           </td>
                           <td className="px-4 py-2">
                             <span className={`px-2 py-1 rounded text-xs font-medium ${status.bg} ${status.color}`}>
@@ -472,7 +549,7 @@ export default function ResearchDetail() {
               </div>
             ) : (
               <p className="text-center text-gray-500 py-8 text-sm">
-                No soil moisture data yet for this plant
+                No soil moisture data yet. Waiting for sensor...
               </p>
             )}
           </div>
@@ -499,8 +576,8 @@ export default function ResearchDetail() {
             {plants.map((plant) => (
               <div key={plant.id} className="relative">
                 <PlantCard plant={plant} />
-                {activePlant?.plant_id === plant.id && (
-                  <div className="absolute top-2 right-2 bg-gray-900 text-white text-xs px-2 py-1 rounded">
+                {activePlant?.id === plant.id && (
+                  <div className="absolute top-2 right-2 bg-green-600 text-white text-xs px-2 py-1 rounded">
                     ACTIVE
                   </div>
                 )}
@@ -532,7 +609,7 @@ export default function ResearchDetail() {
                   </label>
                   <input
                     type="text"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-gray-900 focus:border-gray-900 text-sm"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-gray-900 focus:border-gray-900 text-sm text-gray-800"
                     placeholder="e.g., Tomato Plant"
                     value={newPlant.plant_name}
                     onChange={(e) => setNewPlant({...newPlant, plant_name: e.target.value})}
@@ -545,7 +622,7 @@ export default function ResearchDetail() {
                   </label>
                   <input
                     type="text"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-gray-900 focus:border-gray-900 text-sm"
+                    className="w-full px-3 py-2 border border-gray-300 text-gray-800 rounded-md focus:ring-1 focus:ring-gray-900 focus:border-gray-900 text-sm"
                     placeholder="e.g., Farmer Group"
                     value={newPlant.owner_name}
                     onChange={(e) => setNewPlant({...newPlant, owner_name: e.target.value})}

@@ -108,7 +108,7 @@ export default function NewResearch() {
                 <input
                   type="text"
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-gray-900 focus:border-gray-900 text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-gray-900 focus:border-gray-900 text-sm text-gray-800 placeholder:text-gray-400"
                   value={researchData.title}
                   onChange={(e) => setResearchData({...researchData, title: e.target.value})}
                   placeholder="e.g., Hydroponic Tomato Research"
@@ -121,7 +121,7 @@ export default function NewResearch() {
                 </label>
                 <textarea
                   rows="3"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-gray-900 focus:border-gray-900 text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-gray-900 focus:border-gray-900 text-sm text-gray-800 placeholder:text-gray-400"
                   value={researchData.description}
                   onChange={(e) => setResearchData({...researchData, description: e.target.value})}
                   placeholder="Brief description of the research..."
@@ -134,10 +134,10 @@ export default function NewResearch() {
                 </label>
                 <input
                   type="url"
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-gray-900 focus:border-gray-900 text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-gray-900 focus:border-gray-900 text-sm text-gray-800 placeholder:text-gray-400"
                   value={researchData.youtube_url}
                   onChange={(e) => setResearchData({...researchData, youtube_url: e.target.value})}
+                  placeholder="https://www.youtube.com/watch?v=..."
                 />
                 <p className="text-xs text-gray-400 mt-1">Optional: Add a live stream URL</p>
               </div>
@@ -176,17 +176,17 @@ export default function NewResearch() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <input
                       type="text"
-                      placeholder="Plant Name *"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-gray-900 focus:border-gray-900"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-800 focus:ring-1 focus:ring-gray-900 focus:border-gray-900 placeholder:text-gray-400"
                       value={plant.plant_name}
                       onChange={(e) => updatePlant(index, 'plant_name', e.target.value)}
+                      placeholder="Plant Name *"
                     />
                     <input
                       type="text"
-                      placeholder="Owner Name *"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-gray-900 focus:border-gray-900"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-800 focus:ring-1 focus:ring-gray-900 focus:border-gray-900 placeholder:text-gray-400"
                       value={plant.owner_name}
                       onChange={(e) => updatePlant(index, 'owner_name', e.target.value)}
+                      placeholder="Owner Name *"
                     />
                   </div>
                 </div>

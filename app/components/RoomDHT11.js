@@ -154,6 +154,7 @@ export default function RoomDHT11() {
     return () => {
       subscription.unsubscribe()
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Fetch history when modal opens or time range changes
@@ -162,6 +163,7 @@ export default function RoomDHT11() {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchHistory()
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHistory, timeRange])
 
   // Auto-refresh setiap 30 detik
