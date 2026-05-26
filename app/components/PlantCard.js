@@ -21,7 +21,6 @@ export default function PlantCard({ plant: initialPlant }) {
       
       if (data && data.length > 0) {
         setLatestSoilMoisture(data[0])
-        console.log(`📊 Card ${plant.plant_name}: Latest data = ${data[0].moisture_value}`)
       } else {
         setLatestSoilMoisture(null)
       }
@@ -37,9 +36,7 @@ export default function PlantCard({ plant: initialPlant }) {
       .eq('id', 1)
       .single()
     
-    const active = data?.plant_id === plant.id
-    setIsActive(active)
-    return active
+    setIsActive(data?.plant_id === plant.id)
   }
 
   useEffect(() => {
@@ -61,9 +58,8 @@ export default function PlantCard({ plant: initialPlant }) {
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'active_plant', filter: 'id=eq.1' },
         async (payload) => {
-          const isNowActive = payload.new?.plant_id === plant.id
-          setIsActive(isNowActive)
-          if (isNowActive) {
+          setIsActive(payload.new?.plant_id === plant.id)
+          if (payload.new?.plant_id === plant.id) {
             await fetchLatestForPlant()
           }
         }
@@ -80,15 +76,19 @@ export default function PlantCard({ plant: initialPlant }) {
           filter: `plant_id=eq.${plant.id}`
         },
         (payload) => {
-          console.log(`🔴 LIVE: Card ${plant.plant_name} received new data:`, payload.new.moisture_value)
           setLatestSoilMoisture(payload.new)
         }
       )
       .subscribe()
 
     pollingInterval = setInterval(async () => {
-      const currentActive = await checkActive()
-      if (currentActive) {
+      const { data } = await supabase
+        .from('active_plant')
+        .select('plant_id')
+        .eq('id', 1)
+        .single()
+      
+      if (data?.plant_id === plant.id) {
         await fetchLatestForPlant()
       }
     }, 3000)
@@ -116,20 +116,10 @@ export default function PlantCard({ plant: initialPlant }) {
     }
   }
 
-  // Status berdasarkan nilai persen
-  function getMoistureStatus(value) {
-    if (!value && value !== 0) return { text: 'No Data', color: 'text-gray-500', bg: 'bg-gray-100' }
-    
-    let numericValue = typeof value === 'string' ? parseInt(value) : value
-    
-    if (isNaN(numericValue) || numericValue === 0) {
-      return { text: 'No Reading', color: 'text-gray-500', bg: 'bg-gray-100' }
-    }
-    
-    if (numericValue > 70) return { text: 'Dry', color: 'text-red-600', bg: 'bg-red-100' }
-    if (numericValue > 50) return { text: 'Moist', color: 'text-yellow-600', bg: 'bg-yellow-100' }
-    if (numericValue > 30) return { text: 'Wet', color: 'text-blue-600', bg: 'bg-blue-100' }
-    return { text: 'Very Wet', color: 'text-green-600', bg: 'bg-green-100' }
+  // Cuma tambah % doang
+  function formatValue(value) {
+    if (!value && value !== 0) return '--'
+    return `${value}%`
   }
 
   function formatTime(timestamp) {
@@ -138,12 +128,27 @@ export default function PlantCard({ plant: initialPlant }) {
     return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   }
 
-  // Tampilkan nilai + simbol persen
-  function getDisplayValue(value) {
-    if (!value && value !== 0) return '--'
-    let cleanValue = String(value).replace(/[^0-9]/g, '')
-    if (cleanValue === '') return '--'
-    return `${cleanValue}%`
+  // Fungsi untuk warna background berdasarkan status
+  function getStatusStyle(status) {
+    if (!status) return 'bg-gray-100'
+    
+    const statusLower = status.toLowerCase()
+    if (statusLower === 'dry') return 'bg-red-100'
+    if (statusLower === 'moist') return 'bg-yellow-100'
+    if (statusLower === 'wet') return 'bg-blue-100'
+    if (statusLower === 'very wet') return 'bg-green-100'
+    return 'bg-gray-100'
+  }
+
+  function getStatusColor(status) {
+    if (!status) return 'text-gray-500'
+    
+    const statusLower = status.toLowerCase()
+    if (statusLower === 'dry') return 'text-red-600'
+    if (statusLower === 'moist') return 'text-yellow-600'
+    if (statusLower === 'wet') return 'text-blue-600'
+    if (statusLower === 'very wet') return 'text-green-600'
+    return 'text-gray-500'
   }
 
   if (loading) {
@@ -156,9 +161,6 @@ export default function PlantCard({ plant: initialPlant }) {
       </div>
     )
   }
-
-  const displayValue = latestSoilMoisture ? getDisplayValue(latestSoilMoisture.moisture_value) : '--'
-  const status = getMoistureStatus(latestSoilMoisture?.moisture_value)
 
   return (
     <>
@@ -189,14 +191,15 @@ export default function PlantCard({ plant: initialPlant }) {
             </h4>
             
             {latestSoilMoisture ? (
-              <div className={`p-3 rounded-md ${status.bg}`}>
-                {/* Tampilkan nilai dengan simbol % */}
-                <p className="text-2xl font-bold" style={{ color: status.color }}>
-                  {displayValue}
+              <div className={`p-3 rounded-md ${getStatusStyle(latestSoilMoisture.status)}`}>
+                <p className="text-2xl font-bold text-gray-900">
+                  {formatValue(latestSoilMoisture.moisture_value)}
                 </p>
-                <p className={`text-xs font-medium ${status.color}`}>
-                  {status.text}
-                </p>
+                {latestSoilMoisture.status && (
+                  <p className={`text-xs font-medium ${getStatusColor(latestSoilMoisture.status)}`}>
+                    {latestSoilMoisture.status}
+                  </p>
+                )}
                 <p className="text-xs text-gray-400 mt-1">
                   {formatTime(latestSoilMoisture.recorded_at)}
                 </p>

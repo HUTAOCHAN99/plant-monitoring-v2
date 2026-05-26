@@ -25,6 +25,32 @@ export default function ResearchDetail() {
   const [newPlant, setNewPlant] = useState({ plant_name: '', owner_name: '' })
   const [isAdding, setIsAdding] = useState(false)
 
+  // Helper functions - LANGSUNG PAKAI DATA DARI DATABASE, tanpa konversi
+  function formatValue(value) {
+    if (!value && value !== 0) return '--'
+    return `${value}%`
+  }
+
+  function getStatusStyle(status) {
+    if (!status) return 'bg-gray-100'
+    const statusLower = status.toLowerCase()
+    if (statusLower === 'dry') return 'bg-red-100'
+    if (statusLower === 'moist') return 'bg-yellow-100'
+    if (statusLower === 'wet') return 'bg-blue-100'
+    if (statusLower === 'very wet') return 'bg-green-100'
+    return 'bg-gray-100'
+  }
+
+  function getStatusColor(status) {
+    if (!status) return 'text-gray-500'
+    const statusLower = status.toLowerCase()
+    if (statusLower === 'dry') return 'text-red-600'
+    if (statusLower === 'moist') return 'text-yellow-600'
+    if (statusLower === 'wet') return 'text-blue-600'
+    if (statusLower === 'very wet') return 'text-green-600'
+    return 'text-gray-500'
+  }
+
   // Fetch functions
   const fetchGlobalSensorStatus = useCallback(async () => {
     const { data, error } = await supabase
@@ -42,7 +68,6 @@ export default function ResearchDetail() {
   const fetchActivePlant = useCallback(async () => {
     console.log('Fetching active plant...')
     
-    // First get the active plant ID
     const { data: activeData, error: activeError } = await supabase
       .from('active_plant')
       .select('plant_id, research_id, updated_at')
@@ -57,7 +82,6 @@ export default function ResearchDetail() {
     
     console.log('Active plant ID:', activeData?.plant_id)
     
-    // If there's a plant_id, fetch the plant details
     if (activeData?.plant_id) {
       const { data: plantData, error: plantError } = await supabase
         .from('plants')
@@ -78,7 +102,6 @@ export default function ResearchDetail() {
   }, [])
 
   const fetchSoilMoistureLogs = useCallback(async () => {
-    // Get active plant first
     const { data: activeData } = await supabase
       .from('active_plant')
       .select('plant_id')
@@ -86,22 +109,10 @@ export default function ResearchDetail() {
       .single()
     
     if (activeData?.plant_id) {
-      // Fetch data for active plant
       const { data } = await supabase
         .from('soil_moisture_data')
         .select('*')
         .eq('plant_id', activeData.plant_id)
-        .order('recorded_at', { ascending: false })
-        .limit(20)
-      
-      if (data) {
-        setSoilMoistureLogs(data)
-      }
-    } else {
-      // If no active plant, show all data or empty
-      const { data } = await supabase
-        .from('soil_moisture_data')
-        .select('*')
         .order('recorded_at', { ascending: false })
         .limit(20)
       
@@ -151,7 +162,6 @@ export default function ResearchDetail() {
     
     console.log('Setting active plant to:', plantId, plantName)
     
-    // Update active_plant table
     const { error } = await supabase
       .from('active_plant')
       .upsert({
@@ -266,24 +276,23 @@ export default function ResearchDetail() {
   useEffect(() => {
     if (!id) return
 
-    // Subscribe to ALL new soil moisture data
+    // Subscribe to new soil moisture data
     const moistureSubscription = supabase
       .channel('moisture_all_' + id)
       .on('postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'soil_moisture_data' },
-        (payload) => {
-          // Check if the new data belongs to active plant
-          const { data: activeData } = supabase
+        async (payload) => {
+          console.log('🔴 LIVE: New data received:', payload.new)
+          
+          const { data: activeData } = await supabase
             .from('active_plant')
             .select('plant_id')
             .eq('id', 1)
             .single()
           
-          activeData.then(({ data }) => {
-            if (data?.plant_id === payload.new.plant_id) {
-              setSoilMoistureLogs(prev => [payload.new, ...prev].slice(0, 50))
-            }
-          })
+          if (activeData?.plant_id === payload.new?.plant_id) {
+            setSoilMoistureLogs(prev => [payload.new, ...prev].slice(0, 20))
+          }
         }
       )
       .subscribe()
@@ -328,38 +337,6 @@ export default function ResearchDetail() {
       plantsSubscription.unsubscribe()
     }
   }, [id, fetchActivePlant, fetchPlants, fetchSoilMoistureLogs])
-
-  // Effect for auto-refresh when recording
-  useEffect(() => {
-    if (isRecording) {
-      const interval = setInterval(() => {
-        fetchSoilMoistureLogs()
-      }, 5000)
-      return () => clearInterval(interval)
-    }
-  }, [isRecording, fetchSoilMoistureLogs])
-
-  function getMoistureStatus(value) {
-    if (!value) return { text: 'No data', color: 'text-gray-500', bg: 'bg-gray-100' }
-    let cleanValue = String(value).replace(/[^0-9]/g, '')
-    let numericValue = parseInt(cleanValue) || 0
-    if (numericValue === 0) return { text: 'No Reading', color: 'text-gray-500', bg: 'bg-gray-100' }
-    let percentage = (numericValue / 4095) * 100
-    if (percentage > 70) return { text: 'Dry', color: 'text-red-600', bg: 'bg-red-100' }
-    if (percentage > 50) return { text: 'Moist', color: 'text-yellow-600', bg: 'bg-yellow-100' }
-    if (percentage > 30) return { text: 'Wet', color: 'text-blue-600', bg: 'bg-blue-100' }
-    return { text: 'Very Wet', color: 'text-green-600', bg: 'bg-green-100' }
-  }
-
-  function getDisplayValue(rawValue) {
-    if (!rawValue) return '--'
-    let cleanValue = String(rawValue).replace(/[^0-9]/g, '')
-    let numericValue = parseInt(cleanValue) || 0
-    if (numericValue === 0) return 'No Reading'
-    let percentage = (numericValue / 4095) * 100
-    percentage = Math.min(100, Math.max(0, percentage))
-    return `${Math.round(percentage)}%`
-  }
 
   if (loading) return (
     <div className="min-h-screen flex flex-col">
@@ -466,7 +443,7 @@ export default function ResearchDetail() {
                         className={`
                           w-full px-3 py-2 rounded-md text-sm font-medium transition-all
                           ${activePlant?.id === plant.id 
-                            ? 'bg-green-600 text-white' 
+                            ? 'bg-gray-900 text-white' 
                             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                           }
                           ${isSwitching ? 'opacity-50 cursor-not-allowed' : ''}
@@ -491,7 +468,7 @@ export default function ResearchDetail() {
           </div>
         </div>
         
-        {/* Soil Moisture Data - Shows data for active plant */}
+        {/* Soil Moisture Data - LANGSUNG PAKAI DATA DARI DATABASE */}
         {isRecording && activePlant && (
           <div className="mb-8 bg-white rounded-lg border border-gray-200 p-6">
             <h2 className="text-sm font-semibold text-gray-700 mb-4">
@@ -501,13 +478,15 @@ export default function ResearchDetail() {
             {soilMoistureLogs[0] && (
               <div className="mb-4 p-4 bg-gray-50 rounded-md">
                 <p className="text-xs text-gray-500 uppercase tracking-wide">Latest Reading</p>
-                <div className={`inline-block px-3 py-1 rounded-md mt-2 ${getMoistureStatus(soilMoistureLogs[0].moisture_value).bg}`}>
-                  <span className={`text-2xl font-bold ${getMoistureStatus(soilMoistureLogs[0].moisture_value).color}`}>
-                    {getDisplayValue(soilMoistureLogs[0].moisture_value)}
+                <div className={`inline-block px-3 py-1 rounded-md mt-2 ${getStatusStyle(soilMoistureLogs[0].status)}`}>
+                  <span className={`text-2xl font-bold ${getStatusColor(soilMoistureLogs[0].status)}`}>
+                    {formatValue(soilMoistureLogs[0].moisture_value)}
                   </span>
-                  <span className={`ml-2 text-sm font-medium ${getMoistureStatus(soilMoistureLogs[0].moisture_value).color}`}>
-                    {getMoistureStatus(soilMoistureLogs[0].moisture_value).text}
-                  </span>
+                  {soilMoistureLogs[0].status && (
+                    <span className={`ml-2 text-sm font-medium ${getStatusColor(soilMoistureLogs[0].status)}`}>
+                      {soilMoistureLogs[0].status}
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-gray-400 mt-2">
                   {new Date(soilMoistureLogs[0].recorded_at).toLocaleString()}
@@ -526,24 +505,21 @@ export default function ResearchDetail() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {soilMoistureLogs.slice(0, 10).map((log, idx) => {
-                      const status = getMoistureStatus(log.moisture_value)
-                      return (
-                        <tr key={idx} className="hover:bg-gray-50">
-                          <td className="px-4 py-2 text-sm text-gray-500">
-                            {new Date(log.recorded_at).toLocaleString()}
-                          </td>
-                          <td className="px-4 py-2 text-sm font-mono font-medium">
-                            {getDisplayValue(log.moisture_value)}
-                          </td>
-                          <td className="px-4 py-2">
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${status.bg} ${status.color}`}>
-                              {status.text}
-                            </span>
-                          </td>
-                        </tr>
-                      )
-                    })}
+                    {soilMoistureLogs.slice(0, 10).map((log, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50">
+                        <td className="px-4 py-2 text-sm text-gray-500">
+                          {new Date(log.recorded_at).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2 text-sm font-mono font-medium text-gray-400">
+                          {formatValue(log.moisture_value)}
+                        </td>
+                        <td className="px-4 py-2">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusStyle(log.status)} ${getStatusColor(log.status)}`}>
+                            {log.status || '-'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -609,7 +585,7 @@ export default function ResearchDetail() {
                   </label>
                   <input
                     type="text"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-gray-900 focus:border-gray-900 text-sm text-gray-800"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-gray-900 focus:border-gray-900 text-sm text-gray-800 placeholder:text-gray-400"
                     placeholder="e.g., Tomato Plant"
                     value={newPlant.plant_name}
                     onChange={(e) => setNewPlant({...newPlant, plant_name: e.target.value})}
@@ -622,7 +598,7 @@ export default function ResearchDetail() {
                   </label>
                   <input
                     type="text"
-                    className="w-full px-3 py-2 border border-gray-300 text-gray-800 rounded-md focus:ring-1 focus:ring-gray-900 focus:border-gray-900 text-sm"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-gray-900 focus:border-gray-900 text-sm text-gray-800 placeholder:text-gray-400"
                     placeholder="e.g., Farmer Group"
                     value={newPlant.owner_name}
                     onChange={(e) => setNewPlant({...newPlant, owner_name: e.target.value})}
