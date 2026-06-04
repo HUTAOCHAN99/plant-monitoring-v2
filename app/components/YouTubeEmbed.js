@@ -1,14 +1,19 @@
 'use client'
 
+import { useEffect, useState } from 'react'
+
 export default function CameraStream() {
-  const streamUrl = process.env.NEXT_PUBLIC_STREAM_URL
+  const [streamUrl, setStreamUrl] = useState(null)
+
+  useEffect(() => {
+    fetch('/api/stream')
+      .then(res => res.json())
+      .then(data => setStreamUrl(data.url))
+      .catch(err => console.error(err))
+  }, [])
 
   if (!streamUrl) {
-    return (
-      <p className="text-red-500 text-sm">
-        NEXT_PUBLIC_STREAM_URL belum di-set
-      </p>
-    )
+    return <p className="text-sm text-gray-500">Loading stream...</p>
   }
 
   return (
