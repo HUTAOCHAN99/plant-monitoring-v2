@@ -9,6 +9,7 @@ export default function YouTubeEmbed({ url }) {
   }
 
   const videoId = getYouTubeId(url)
+  const streamUrl = process.env.NEXT_PUBLIC_STREAM_URL;
   
   if (!videoId) {
     return <p className="text-red-500 text-sm">Invalid YouTube URL</p>
@@ -18,7 +19,7 @@ export default function YouTubeEmbed({ url }) {
     <div className="relative pb-[56.25%] h-0">
       <iframe
         className="absolute top-0 left-0 w-full h-full rounded-md"
-        src={`http://localhost:1984/stream.html?src=tapo_kamera&mode=webrtc`}
+        src={`${streamUrl}/stream.html?src=tapo_kamera&mode=webrtc`}
         title="YouTube live stream"
         frameBorder="0"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
