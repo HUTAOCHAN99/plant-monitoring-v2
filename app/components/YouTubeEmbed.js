@@ -9,7 +9,6 @@ export default function CameraStream() {
         className="absolute top-0 left-0 w-full h-full rounded-md"
         src={`${streamUrl}/stream.html?src=tapo_kamera&mode=webrtc`}
         title="Camera Stream"
-        frameBorder="0"
         allowFullScreen
       />
     </div>
