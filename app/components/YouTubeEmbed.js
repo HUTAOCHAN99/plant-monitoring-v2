@@ -1,30 +1,47 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
-export default function CameraStream() {
-  const [streamUrl, setStreamUrl] = useState(null)
+export default function YouTubeEmbed({ url }) {
+  const streamUrl = process.env.NEXT_PUBLIC_STREAM_URL
 
   useEffect(() => {
-    fetch('/api/stream')
-      .then(res => res.json())
-      .then(data => setStreamUrl(data.url))
-      .catch(err => console.error(err))
-  }, [])
+    console.log('=== DEBUG STREAM ===')
+    console.log('streamUrl:', streamUrl)
+    console.log(
+      'iframe src:',
+      `${streamUrl}/stream.html?src=tapo_kamera&mode=webrtc`
+    )
 
-  if (!streamUrl) {
-    return <p className="text-sm text-gray-500">Loading stream...</p>
-  }
+    setTimeout(() => {
+      console.log(
+        'iframe count:',
+        document.querySelectorAll('iframe').length
+      )
+
+      console.log(
+        'iframe list:',
+        [...document.querySelectorAll('iframe')].map(i => ({
+          src: i.src,
+          width: i.clientWidth,
+          height: i.clientHeight
+        }))
+      )
+    }, 1000)
+  }, [streamUrl])
 
   return (
-    <div className="aspect-video w-full">
+    <div
+      className="relative pb-[56.25%] h-0 border-4 border-red-500"
+      style={{ minHeight: '450px' }}
+    >
       <iframe
-        className="w-full h-full rounded-md"
+        className="absolute top-0 left-0 w-full h-full rounded-md"
         src={`${streamUrl}/stream.html?src=tapo_kamera&mode=webrtc`}
         title="Camera Stream"
-        frameBorder="0"
-        allow="autoplay; fullscreen"
-        allowFullScreen
+        onLoad={() => {
+          console.log('iframe loaded')
+        }}
       />
     </div>
   )
