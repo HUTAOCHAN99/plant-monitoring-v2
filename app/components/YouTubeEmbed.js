@@ -3,7 +3,7 @@
 import { useEffect } from 'react'
 
 export default function YouTubeEmbed({ url }) {
-  const streamUrl = 'http://swiftness-undecided-empower.ngrok-free.dev/stream.html?src=tapo_kamera&mode=webrtc'
+  const streamUrl = 'https://swiftness-undecided-empower.ngrok-free.dev/stream.html?src=tapo_kamera&mode=webrtc'
 
   useEffect(() => {
     console.log('=== DEBUG STREAM ===')
