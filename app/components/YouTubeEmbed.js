@@ -5,9 +5,9 @@ import { useState } from "react";
 export default function CameraTabs() {
   const streams = {
     kamera1:
-      "http://192.168.14.47:18090/?viewIndex=0#Live",
+      "https://swiftness-undecided-empower.ngrok-free.dev/stream.html?src=tapo_kamera&mode=mse",
     kamera2:
-      "https://swiftness-undecided-empower.ngrok-free.dev/stream.html?src=tapo_kamera2&mode=webrtc",
+      "http://192.168.14.47:18090/?viewIndex=0#Live",
   };
 
   const [activeTab, setActiveTab] = useState("kamera1");
@@ -24,7 +24,7 @@ export default function CameraTabs() {
               : "bg-gray-900 text-white hover:bg-gray-800"
           }`}
         >
-          Kamera 1
+          Live 
         </button>
 
         <button
@@ -35,7 +35,7 @@ export default function CameraTabs() {
               : "bg-gray-900 text-white hover:bg-gray-800"
           }`}
         >
-          Kamera 2
+          Playback
         </button>
       </div>
 
