@@ -5,7 +5,7 @@ import { useState } from "react";
 export default function CameraTabs() {
   const streams = {
     kamera1:
-      "https://swiftness-undecided-empower.ngrok-free.dev/stream.html?src=tapo_kamera&mode=webrtc",
+      "http://192.168.14.47:18090/?viewIndex=0#Live",
     kamera2:
       "https://swiftness-undecided-empower.ngrok-free.dev/stream.html?src=tapo_kamera2&mode=webrtc",
   };
